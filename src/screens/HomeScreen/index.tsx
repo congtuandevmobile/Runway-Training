@@ -25,7 +25,6 @@ export const HomeScreen: React.FC = function HomeScreen() {
 
   const latitude = useSharedValue(startPosition.latitude);
   const longitude = useSharedValue(startPosition.longitude);
-//   const rotation = useSharedValue(0);
   const opacity = useSharedValue(1);
 
   const calculateBearing = (
@@ -55,11 +54,6 @@ export const HomeScreen: React.FC = function HomeScreen() {
 
     rotation.value = bearing
 
-    // rotation.value = withTiming(bearing, {
-    //   duration: 2000,
-    //   easing: Easing.out(Easing.quad),
-    // });
-
     latitude.value = withDelay(
       1000,
       withTiming(endPosition.latitude, {
@@ -82,7 +76,7 @@ export const HomeScreen: React.FC = function HomeScreen() {
     'worklet';
     opacity.value = withTiming(0, { duration: 200 }, () => {
       latitude.value = startPosition.latitude;
-      longitude.value = startPosition.longitude;
+       longitude.value = startPosition.longitude;
       rotation.value = initialBearing;
 
       opacity.value = withTiming(1, { duration: 200 });
@@ -201,21 +195,21 @@ const styles = StyleSheet.create(() => ({
   airplaneBody: {
     width: 4,
     height: 24,
-    backgroundColor: '#f0f321ff',
+    backgroundColor:"#fa541c",
     position: 'absolute',
     borderRadius: 2,
   },
   airplaneWings: {
     width: 24,
     height: 4,
-    backgroundColor: '#f0f321ff',
+    backgroundColor:"#fa541c",
     position: 'absolute',
     borderRadius: 2,
   },
   airplaneTail: {
     width: 12,
     height: 3,
-    backgroundColor: '#f0f321ff',
+    backgroundColor:"#fa541c",
     position: 'absolute',
     top: 20,
     borderRadius: 1.5,
@@ -223,6 +217,6 @@ const styles = StyleSheet.create(() => ({
   airplaneImage: {
     width: 32,
     height: 32,
-    tintColor: '#f0f321ff',
+    tintColor: '#fa541c',
   },
 }));
