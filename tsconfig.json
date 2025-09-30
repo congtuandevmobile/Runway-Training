@@ -10,6 +10,7 @@
   "include": [
     "index.js",
     "src",
-    "App.tsx",
+    "App.tsx", 
+    "unistyles.ts",
   ]
 }
