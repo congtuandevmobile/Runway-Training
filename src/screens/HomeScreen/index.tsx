@@ -1,5 +1,5 @@
-import React, { useEffect } from 'react';
-import { Platform, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Platform, Text, TouchableOpacity, View } from 'react-native';
 import { StyleSheet } from 'react-native-unistyles';
 import MapView, { PROVIDER_DEFAULT, UrlTile, Marker } from 'react-native-maps';
 import Animated, {
@@ -11,6 +11,7 @@ import Animated, {
   Easing,
 } from 'react-native-reanimated';
 import { END_POINT, REGION, START_POINT } from './contant';
+import { ITextInputSheetRef, TextInputSheet } from './TextInputSheet';
 
 export interface AirplanePosition {
   latitude: number;
@@ -20,8 +21,9 @@ export interface AirplanePosition {
 const AnimatedMarker = Animated.createAnimatedComponent(Marker);
 
 export const HomeScreen: React.FC = function HomeScreen() {
-  const startPosition = START_POINT
+  const startPosition = START_POINT;
   const endPosition = END_POINT;
+  const textInputSheetRef = useRef<ITextInputSheetRef>(null);
 
   const latitude = useSharedValue(startPosition.latitude);
   const longitude = useSharedValue(startPosition.longitude);
@@ -52,7 +54,7 @@ export const HomeScreen: React.FC = function HomeScreen() {
     'worklet';
     const bearing = calculateBearing(startPosition, endPosition);
 
-    rotation.value = bearing
+    rotation.value = bearing;
 
     latitude.value = withDelay(
       1000,
@@ -76,7 +78,7 @@ export const HomeScreen: React.FC = function HomeScreen() {
     'worklet';
     opacity.value = withTiming(0, { duration: 200 }, () => {
       latitude.value = startPosition.latitude;
-       longitude.value = startPosition.longitude;
+      longitude.value = startPosition.longitude;
       rotation.value = initialBearing;
 
       opacity.value = withTiming(1, { duration: 200 });
@@ -142,19 +144,16 @@ export const HomeScreen: React.FC = function HomeScreen() {
           urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {/* Animated Marker cho máy bay */}
         <AnimatedMarker
           flat={true}
-          anchor={{ x: 0.5, y: 0}}
+          anchor={{ x: 0.5, y: 0 }}
           style={animatedMarkerStyle}
           animatedProps={animatedMarkerProps}
-        //   coordinate={{ latitude: 0, longitude: 0 }}
           coordinate={{ latitude: latitude.value, longitude: longitude.value }}
         >
           <Animated.View
             style={[styles.airplaneContainer, animatedAirplaneStyle]}
           >
-            {/* Custom airplane shape */}
             <View style={styles.airplane}>
               <View style={styles.airplaneBody} />
               <View style={styles.airplaneWings} />
@@ -162,15 +161,17 @@ export const HomeScreen: React.FC = function HomeScreen() {
             </View>
           </Animated.View>
         </AnimatedMarker>
-
-        {/* <Marker
-          pinColor="green"
-          title="Điểm khởi hành"
-          coordinate={startPosition}
-        /> */}
-
-        {/* <Marker pinColor="red" title="Điểm đến" coordinate={endPosition} /> */}
       </MapView>
+      <TouchableOpacity
+        style={styles.button}
+        onPress={() => {
+          textInputSheetRef.current?.present();
+        }}
+      >
+        <Text style={styles.textButton}>{'Nhập dữ liệu'}</Text>
+      </TouchableOpacity>
+
+      <TextInputSheet ref={textInputSheetRef} />
     </View>
   );
 };
@@ -195,21 +196,21 @@ const styles = StyleSheet.create(() => ({
   airplaneBody: {
     width: 4,
     height: 24,
-    backgroundColor:"#fa541c",
+    backgroundColor: '#fa541c',
     position: 'absolute',
     borderRadius: 2,
   },
   airplaneWings: {
     width: 24,
     height: 4,
-    backgroundColor:"#fa541c",
+    backgroundColor: '#fa541c',
     position: 'absolute',
     borderRadius: 2,
   },
   airplaneTail: {
     width: 12,
     height: 3,
-    backgroundColor:"#fa541c",
+    backgroundColor: '#fa541c',
     position: 'absolute',
     top: 20,
     borderRadius: 1.5,
@@ -218,5 +219,18 @@ const styles = StyleSheet.create(() => ({
     width: 32,
     height: 32,
     tintColor: '#fa541c',
+  },
+  button: {
+    bottom: 60,
+    padding: 20,
+    borderRadius: 50,
+    alignSelf: 'center',
+    position: 'absolute',
+    backgroundColor: '#fa541c',
+  },
+  textButton: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 }));
