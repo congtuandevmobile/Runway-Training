@@ -1,7 +1,19 @@
-import React, { useEffect, useRef } from 'react';
-import { Platform, Text, TouchableOpacity, View } from 'react-native';
-import { StyleSheet } from 'react-native-unistyles';
-import MapView, { PROVIDER_DEFAULT, UrlTile, Marker } from 'react-native-maps';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  DeviceEventEmitter,
+  Modal,
+  Platform,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { StyleSheet, useUnistyles } from 'react-native-unistyles';
+import MapView, {
+  PROVIDER_DEFAULT,
+  UrlTile,
+  Marker,
+  Polyline,
+} from 'react-native-maps';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -9,80 +21,137 @@ import Animated, {
   withTiming,
   withDelay,
   Easing,
+  cancelAnimation,
 } from 'react-native-reanimated';
-import { END_POINT, REGION, START_POINT } from './contant';
+import { REGION, WAYPOINTS } from './contant';
 import { ITextInputSheetRef, TextInputSheet } from './TextInputSheet';
+import { calculateBearing, durationMsBySpeed, shortestTurn } from './helper';
+import { scheduleOnRN, scheduleOnUI } from 'react-native-worklets';
+import { AirplanePosition, AnimateRouteOptions } from './type';
+import { Clock } from 'src/components/Clock';
 
-export interface AirplanePosition {
-  latitude: number;
-  longitude: number;
-}
+const AIRPLANE_LENGTH = 24;
+const WING_THICKNESS = 4;
+const TAIL_HEIGHT = 3;
+
+const ROTATE_DURATION = 2000;
+const START_MOVE_DELAY = 250;
+const SPEED_KMH = 250;
 
 const AnimatedMarker = Animated.createAnimatedComponent(Marker);
 
 export const HomeScreen: React.FC = function HomeScreen() {
-  const startPosition = START_POINT;
-  const endPosition = END_POINT;
+  const { theme } = useUnistyles();
   const textInputSheetRef = useRef<ITextInputSheetRef>(null);
+  const mapRef = useRef<MapView>(null);
+  const [selectModeVisible, setSelectModeVisible] = useState<boolean>(false);
 
-  const latitude = useSharedValue(startPosition.latitude);
-  const longitude = useSharedValue(startPosition.longitude);
+  // const clockStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // const clockStopTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [bump, setBump] = useState(0);
+  const [showRoute, setShowRoute] = useState<boolean>(false);
+  const [routePoints, setRoutePoints] = useState<AirplanePosition[] | null>(
+    null,
+  );
+
+  const latitude = useSharedValue(WAYPOINTS[0].latitude);
+  const longitude = useSharedValue(WAYPOINTS[0].longitude);
   const opacity = useSharedValue(1);
+  const rotation = useSharedValue(
+    calculateBearing(WAYPOINTS[0], WAYPOINTS[1] ?? WAYPOINTS[0]),
+  );
 
-  const calculateBearing = (
-    start: AirplanePosition,
-    end: AirplanePosition,
-  ): number => {
-    const startLat = start.latitude * (Math.PI / 180);
-    const startLng = start.longitude * (Math.PI / 180);
-    const destLat = end.latitude * (Math.PI / 180);
-    const destLng = end.longitude * (Math.PI / 180);
-
-    const y = Math.sin(destLng - startLng) * Math.cos(destLat);
-    const x =
-      Math.cos(startLat) * Math.sin(destLat) -
-      Math.sin(startLat) * Math.cos(destLat) * Math.cos(destLng - startLng);
-
-    const bearing = Math.atan2(y, x) * (180 / Math.PI);
-    return (bearing + 360) % 360;
-  };
-
-  const initialBearing = calculateBearing(startPosition, endPosition);
-  const rotation = useSharedValue(initialBearing);
-
-  const animateAirplane = () => {
+  const animateSegment = (
+    from: AirplanePosition,
+    to: AirplanePosition,
+    onDone?: () => void,
+    //
+    overrideMoveDurationMs?: number,
+    isFirstLeg?: boolean
+  ) => {
     'worklet';
-    const bearing = calculateBearing(startPosition, endPosition);
+    const targetBearing = calculateBearing(from, to);
+    const delta = shortestTurn(rotation.value, targetBearing);
+    // Xoay theo hướng ngắn nhất
+    rotation.value = withTiming(rotation.value + delta, {
+      duration: ROTATE_DURATION,
+      easing: Easing.out(Easing.cubic),
+    });
 
-    rotation.value = bearing;
+    // Tính duration theo khoảng cách
+    const moveDuration = overrideMoveDurationMs ?? durationMsBySpeed(from, to, SPEED_KMH);
+
+    //const moveDuration = durationMsBySpeed(from, to, SPEED_KMH);
 
     latitude.value = withDelay(
-      1000,
-      withTiming(endPosition.latitude, {
-        duration: 10000,
+      START_MOVE_DELAY,
+      withTiming(to.latitude, {
+        duration: moveDuration,
         easing: Easing.inOut(Easing.quad),
       }),
     );
-
     longitude.value = withDelay(
-      1000,
-      withTiming(endPosition.longitude, {
-        duration: 10000,
-        easing: Easing.inOut(Easing.quad),
-      }),
+      START_MOVE_DELAY,
+      withTiming(
+        to.longitude,
+        { duration: moveDuration, easing: Easing.inOut(Easing.quad) },
+        finished => {
+          'worklet';
+          if (finished && onDone) {
+            onDone();
+          }
+          if (finished && isFirstLeg && overrideMoveDurationMs == null) {
+            scheduleOnRN(() => {
+              DeviceEventEmitter.emit('clock:stop');
+            });
+          }
+        },
+      ),
     );
   };
 
-  // Reset animation
-  const resetAirplane = () => {
+  const animateRoute = (
+    wp: ReadonlyArray<AirplanePosition>, 
+    loop = true,
+    //
+    opts?: AnimateRouteOptions, 
+  ) => {
     'worklet';
-    opacity.value = withTiming(0, { duration: 200 }, () => {
-      latitude.value = startPosition.latitude;
-      longitude.value = startPosition.longitude;
-      rotation.value = initialBearing;
+    if (!wp || wp.length < 2) return;
+    let i = 0;
+    const step = () => {
+      const from = wp[i];
+      const to = wp[i + 1];
+      //
+      //const override = i === 0 ? opts?.firstLegDurationMs : undefined; 
+      const isFirst = i === 0;
+      const override = isFirst ? opts?.firstLegDurationMs : undefined;
 
-      opacity.value = withTiming(1, { duration: 200 });
-    });
+      animateSegment(from, to, () => {
+        i += 1;
+        if (i < wp.length - 1) {
+          step();
+        } else if (loop) {
+          // Reset nhanh rồi chạy lại từ đầu
+          opacity.value = withTiming(0, { duration: 160 }, () => {
+            latitude.value = wp[0].latitude;
+            longitude.value = wp[0].longitude;
+            rotation.value = calculateBearing(wp[0], wp[1] ?? wp[0]);
+
+            opacity.value = withTiming(1, { duration: 160 }, () => {
+              stepIndex0();
+            });
+          });
+        }
+      }, override, isFirst);
+    };
+
+    const stepIndex0 = () => {
+      i = 0;
+      step();
+    };
+    stepIndex0();
   };
 
   const animatedMarkerProps = useAnimatedProps(() => {
@@ -103,6 +172,9 @@ export const HomeScreen: React.FC = function HomeScreen() {
   const animatedAirplaneStyle = useAnimatedStyle(() => {
     return {
       transform: [
+        // {
+        //   translateY: AIRPLANE_LENGTH / 5,
+        // },
         {
           rotate: `${rotation.value}deg`,
         },
@@ -110,27 +182,84 @@ export const HomeScreen: React.FC = function HomeScreen() {
     };
   });
 
+  // useEffect(() => {
+  //   const timer = setTimeout(() => {
+  //     scheduleOnUI(() => {
+  //       'worklet';
+  //       animateRoute([...WAYPOINTS], false);
+  //     });
+  //   }, 600);
+  //   return () => clearTimeout(timer);
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, []);
+
   useEffect(() => {
-    const firstAnimation = setTimeout(() => {
-      animateAirplane();
-    }, 600);
+    const sub = DeviceEventEmitter.addListener(
+      'route:updated',
+      (payload?: { 
+        name: 'P4' | 'P5'; 
+        points: AirplanePosition[];
+        //
+        rotSeconds?: number
+      }) => {
+        if (!payload?.points?.length) return;
+        // if (clockStartTimerRef.current) { clearTimeout(clockStartTimerRef.current); clockStartTimerRef.current = null; }
+        // if (clockStopTimerRef.current)  { clearTimeout(clockStopTimerRef.current);  clockStopTimerRef.current = null; }
+        DeviceEventEmitter.emit('clock:reset'); // ✅
 
-    const interval = setInterval(() => {
-      resetAirplane();
-      setTimeout(() => {
-        animateAirplane();
-      }, 600);
-    }, 13000);
+        setShowRoute(true);
+        setRoutePoints([...payload.points]);
+        setBump(v => v + 1);
 
+        // clockStartTimerRef.current = setTimeout(() => {
+        //   DeviceEventEmitter.emit('clock:start');
+        // }, START_MOVE_DELAY)
+
+        // if (payload.rotSeconds != null) {
+        //   clockStopTimerRef.current = setTimeout(() => {
+        //     DeviceEventEmitter.emit('clock:stop');
+        //   }, START_MOVE_DELAY + Math.round(payload.rotSeconds * 1000));
+        // }
+
+        scheduleOnUI(() => {
+          'worklet';
+          cancelAnimation?.(latitude);
+          cancelAnimation?.(longitude);
+          cancelAnimation?.(rotation);
+          cancelAnimation?.(opacity);
+
+          opacity.value = withTiming(0, { duration: 160 }, () => {
+            // const wp0 = WAYPOINTS[0];
+            // const wp1 = WAYPOINTS[1] ?? WAYPOINTS[0];
+            const wp0 = payload.points[0];
+            const wp1 = payload.points[1] ?? payload.points[0];
+            latitude.value = wp0.latitude;
+            longitude.value = wp0.longitude;
+            rotation.value = calculateBearing(wp0, wp1);
+
+            opacity.value = withTiming(1, { duration: 160 }, () => {
+              // animateRoute([...WAYPOINTS], false);
+              const firstLegMs = payload.rotSeconds != null ? payload.rotSeconds * 1000 : undefined;
+              animateRoute(payload.points, false, { firstLegDurationMs: firstLegMs });
+            });
+          });
+        });
+      },
+    );
+    // return () => sub.remove();
     return () => {
-      clearTimeout(firstAnimation);
-      clearInterval(interval);
+      sub.remove();
+      // if (clockStartTimerRef.current) clearTimeout(clockStartTimerRef.current);
+      // if (clockStopTimerRef.current) clearTimeout(clockStopTimerRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
+        rotateEnabled={false}
         region={REGION}
         provider={PROVIDER_DEFAULT}
         style={StyleSheet.absoluteFillObject}
@@ -144,14 +273,29 @@ export const HomeScreen: React.FC = function HomeScreen() {
           urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
+        {showRoute && (
+          <Polyline
+            key={bump}
+            geodesic={false}
+            zIndex={10}
+            lineCap="round"
+            strokeWidth={3}
+            lineJoin="round"
+            strokeColor={theme.blue}
+            coordinates={routePoints!}
+          />
+        )}
+
         <AnimatedMarker
           flat={true}
-          anchor={{ x: 0.5, y: 0 }}
+          coordinate={WAYPOINTS[0]}
+          anchor={{ x: 0.5, y: 0.5 }}
+          centerOffset={{ x: 0, y: 6 }}
           style={animatedMarkerStyle}
           animatedProps={animatedMarkerProps}
-          coordinate={{ latitude: latitude.value, longitude: longitude.value }}
         >
           <Animated.View
+            collapsable={false}
             style={[styles.airplaneContainer, animatedAirplaneStyle]}
           >
             <View style={styles.airplane}>
@@ -162,11 +306,49 @@ export const HomeScreen: React.FC = function HomeScreen() {
           </Animated.View>
         </AnimatedMarker>
       </MapView>
+
+      <Clock/>
+
+      <Modal transparent visible={selectModeVisible} animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.card}>
+            <Text style={styles.title}>
+              {'Bạn muốn nhập loại dữ liệu nào?'}
+            </Text>
+
+            <TouchableOpacity
+              style={styles.choiceBtn}
+              onPress={() => {
+                setSelectModeVisible(false);
+                textInputSheetRef.current?.present('estimated');
+              }}
+            >
+              <Text style={styles.choiceText}>{'Dữ liệu thực'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.choiceBtn}
+              onPress={() => {
+                setSelectModeVisible(false);
+                textInputSheetRef.current?.present('forecast');
+              }}
+            >
+              <Text style={styles.choiceText}>{'Dữ liệu dự đoán'}</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.cancelBtn, { borderColor: theme.primary }]}
+              onPress={() => setSelectModeVisible(false)}
+            >
+              <Text style={styles.cancelText}>Huỷ</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <TouchableOpacity
         style={styles.button}
-        onPress={() => {
-          textInputSheetRef.current?.present();
-        }}
+        onPress={() => setSelectModeVisible(true)}
       >
         <Text style={styles.textButton}>{'Nhập dữ liệu'}</Text>
       </TouchableOpacity>
@@ -176,61 +358,106 @@ export const HomeScreen: React.FC = function HomeScreen() {
   );
 };
 
-const styles = StyleSheet.create(() => ({
+const styles = StyleSheet.create(theme => ({
   container: {
     flex: 1,
   },
   airplaneContainer: {
-    width: 17,
-    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
   airplane: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   airplaneBody: {
+    top: 0,
     width: 4,
     height: 24,
-    backgroundColor: '#fa541c',
-    position: 'absolute',
     borderRadius: 2,
+    position: 'absolute',
+    backgroundColor: theme.primary,
   },
   airplaneWings: {
     width: 24,
-    height: 4,
-    backgroundColor: '#fa541c',
-    position: 'absolute',
     borderRadius: 2,
+    position: 'absolute',
+    height: WING_THICKNESS,
+    backgroundColor: theme.primary,
+    top: AIRPLANE_LENGTH / 2 - WING_THICKNESS / 2,
   },
   airplaneTail: {
-    width: 12,
-    height: 3,
-    backgroundColor: '#fa541c',
-    position: 'absolute',
-    top: 20,
     borderRadius: 1.5,
+    position: 'absolute',
+    backgroundColor: theme.primary,
+    top: AIRPLANE_LENGTH - TAIL_HEIGHT,
+    width: 12,
+    height: TAIL_HEIGHT,
   },
+
   airplaneImage: {
     width: 32,
     height: 32,
-    tintColor: '#fa541c',
+    tintColor: theme.primary,
   },
   button: {
     bottom: 60,
-    padding: 20,
     borderRadius: 50,
     alignSelf: 'center',
     position: 'absolute',
-    backgroundColor: '#fa541c',
+    backgroundColor: theme.primary,
+    padding: theme.typography.spacings.LS,
   },
   textButton: {
-    fontSize: 16,
+    textAlign: 'center',
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: theme.character_white,
+    fontSize: theme.typography.fontSizes.L,
+  },
+
+  overlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  card: {
+    width: '80%',
+    gap: theme.typography.spacings.S,
+    padding: theme.typography.spacings.L,
+    backgroundColor: theme.character_white,
+    borderRadius: theme.typography.radius.M,
+  },
+  title: {
+    fontWeight: '700',
+    textAlign: 'center',
+    color: theme.primary,
+    fontSize: theme.typography.fontSizes.LS,
+    marginBottom: theme.typography.spacings.M,
+  },
+  choiceBtn: {
+    alignItems: 'center',
+    backgroundColor: theme.primary,
+    borderRadius: theme.typography.radius.M,
+    paddingVertical: theme.typography.spacings.M,
+  },
+  choiceText: {
+    fontWeight: '600',
+    color: theme.character_white,
+  },
+  cancelBtn: {
+    borderWidth: 1,
+    borderRadius: theme.typography.radius.M,
+    paddingVertical: theme.typography.spacings.S,
+    alignItems: 'center',
+    marginTop: theme.typography.spacings.S,
+    backgroundColor: 'transparent',
+  },
+  cancelText: {
+    fontWeight: '600',
+    color: theme.primary,
   },
 }));

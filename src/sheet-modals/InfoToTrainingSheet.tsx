@@ -1,5 +1,8 @@
 import {
+  ActivityIndicator,
+  DeviceEventEmitter,
   KeyboardAvoidingView,
+  Modal,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -8,15 +11,28 @@ import { TemplateHeaderSheet } from 'src/components/TemplateHeaderSheet';
 import { StyleSheet } from 'react-native-unistyles';
 import { stylesGlobal } from 'src/themes/styles';
 import { useForm, Controller } from 'react-hook-form';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { BottomSheetTextInput } from '@gorhom/bottom-sheet';
+import { RouteName, setRoute } from 'src/screens/HomeScreen/contant';
+import {
+  inferExitLocationAndRot,
+  routeByExitLocation,
+} from 'src/data/rot-data';
 
+type Result = { routeName: RouteName; rot: number };
+
+export type Mode = 'forecast' | 'estimated';
 interface IProps {
+  mode: Mode;
   onClose: () => void;
-  onSubmit: () => void;
+  onSubmit: (payload: {
+    mode: Mode;
+    data: FormValues;
+    result?: RouteName;
+  }) => void;
 }
 
-type FormValues = {
+export type FormValues = {
   aircraftType: string;
   finalApproach: string;
   temperature: string;
@@ -44,22 +60,97 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
     },
   });
 
+  const [visible, setVisible] = useState(false);
+  const [phase, setPhase] = useState<'processing' | 'result' | null>(null);
+  const [result, setResult] = useState< Result | null>(null);
+
+  const onSubmitForm = (_data: FormValues) => {
+    if (props.mode === 'estimated') {
+      const inferred = inferExitLocationAndRot({
+        aircraftType: _data.aircraftType,
+        finalApproach: _data.finalApproach,
+        temperature: _data.temperature,
+        time: _data.time,
+        windspeed: _data.windspeed,
+        visibility: _data.visibility,
+      });
+
+      if (!inferred) {
+        console.log('Không Tìm Thấy ROT và Exit Location phù hợp');
+        setVisible(true);
+        setPhase('result');
+        setResult(null);
+        return;
+      }
+
+      const routeName = routeByExitLocation(inferred.exit_location);
+
+      if (!routeName) {
+        setVisible(true);
+        setPhase('result');
+        setResult(null); 
+        return;
+      }
+
+      // setRoute(routeName, inferred.rotSeconds);
+
+      // props.onSubmit?.({
+      //   mode: props.mode,
+      //   data: _data,
+      //   result: routeName,
+      // });
+
+      // setVisible(true);
+      // setPhase('result');
+      // setResult({routeName, rot: inferred.rotSeconds });
+      // return;
+
+      props.onSubmit?.({ mode: props.mode, data: _data, result: routeName });
+      setVisible(true);
+      setPhase('result');
+      setResult({ routeName, rot: inferred.rotSeconds });
+      return;
+    }
+
+    setVisible(true);
+    setPhase('processing');
+    setResult(null);
+  };
+
+  console.log("HELLO")
+
+  const onConfirm = () => {
+    if (props.mode === 'estimated' && result) {
+      setRoute(result.routeName, result.rot);
+      setTimeout(() => {
+       DeviceEventEmitter.emit('clock:start');
+     }, 250 + 3000);
+
+     if (typeof result.rot === 'number') {
+       setTimeout(() => {
+         DeviceEventEmitter.emit('clock:stop');
+       }, 3250 +Math.round(result.rot * 1000));
+     }
+    }
+
+    setVisible(false);
+    setPhase(null);
+    setResult(null);
+    props.onClose();
+    // props.onSubmit();
+  };
+
   useEffect(() => {
     return () => reset();
   }, [reset]);
 
-  const onSubmitForm = (data: FormValues) => {
-    console.log('Training form data:', data); 
-    props.onSubmit();
-  };
-
   return (
     <View style={styles.root}>
       <TemplateHeaderSheet
-        title="Nhập dữ liệu"
         isShowBackIcon
         isShowBorderBottom
         onBack={props.onClose}
+        title={props.mode === 'forecast' ? 'Dữ liệu dự đoán' : 'Dữ liệu thực'}
       />
 
       <View style={styles.container}>
@@ -72,7 +163,7 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
               rules={{ required: 'Hãy nhập loại máy bay' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Loại máy bay (VD: A320/ B738/ A333...)"
+                  placeholder="VD: Heavy, Medium,..."
                   style={[
                     styles.textInput,
                     errors.aircraftType && styles.inputError,
@@ -101,7 +192,7 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
               rules={{ required: 'Hãy nhập tốc độ/giá trị tiếp cận cuối' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Tiếp cận cuối (VD: 140)"
+                  placeholder="VD: 140, 153,..."
                   style={[
                     styles.textInput,
                     errors.finalApproach && styles.inputError,
@@ -126,14 +217,14 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
 
         <View style={styles.row}>
           <View style={styles.textInputContainer}>
-            <Text style={styles.titleText}>{'Nhiệt độ'}</Text>
+            <Text style={styles.titleText}>{'Nhiệt độ (°C)'}</Text>
             <Controller
               name="temperature"
               control={control}
               rules={{ required: 'Hãy nhập nhiệt độ' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Nhiệt độ (°C)"
+                  placeholder="VD: 40, 28,..."
                   style={[
                     styles.textInput,
                     errors.temperature && styles.inputError,
@@ -161,7 +252,7 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
               rules={{ required: 'Hãy nhập thời gian' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Thời gian (VD: 12:30 hoặc ROT 55s)"
+                  placeholder="VD: Night, Day"
                   style={[styles.textInput, errors.time && styles.inputError]}
                   onBlur={onBlur}
                   onChangeText={onChange}
@@ -180,14 +271,14 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
 
         <View style={styles.row}>
           <View style={styles.textInputContainer}>
-            <Text style={styles.titleText}>{'Tốc độ gió'}</Text>
+            <Text style={styles.titleText}>{'Tốc độ gió (kts hoặc m/s)'}</Text>
             <Controller
               name="windspeed"
               control={control}
               rules={{ required: 'Hãy nhập tốc độ gió' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Tốc độ gió (kts hoặc m/s)"
+                  placeholder="VD: 2, 3, -1,..."
                   style={[
                     styles.textInput,
                     errors.windspeed && styles.inputError,
@@ -213,10 +304,10 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
             <Controller
               name="visibility"
               control={control}
-              rules={{ required: 'Hãy nhập tầm nhìn' }}
+              rules={{ required: 'Hãy nhập tầm nhìn (m/km)' }}
               render={({ field: { onChange, onBlur, value } }) => (
                 <BottomSheetTextInput
-                  placeholder="Tầm nhìn (m/km)"
+                  placeholder="VD: 8, 9, 10,..."
                   style={[
                     styles.textInput,
                     errors.visibility && styles.inputError,
@@ -244,10 +335,42 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
           onPress={handleSubmit(onSubmitForm)}
         >
           <Text variant={'subtitle2'} style={styles.textButton}>
-            {'Xác nhận training với dữ liệu trên'}
+            {props.mode === 'forecast'
+              ? 'Xác nhận training với dữ liệu trên'
+              : 'Xác nhận chạy với dữ liệu thực trên'}
           </Text>
         </TouchableOpacity>
       </KeyboardAvoidingView>
+
+      <Modal transparent visible={visible} animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.card}>
+            {phase === 'processing' ? (
+              <View style={styles.modalItem}>
+                <ActivityIndicator size="large" />
+                <Text style={styles.title}>{'Đang training…'}</Text>
+                <Text style={styles.sub}>
+                  {'Vui lòng đợi cho đến khi có kết quả!'}
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.modalItem}>
+                <Text style={styles.title}>{'Kết quả training'}</Text>
+                <Text style={styles.result}>Đường: {result?.routeName}</Text>
+                <Text style={styles.result}>ROT: {result?.rot} giây</Text>
+                <TouchableOpacity
+                  style={styles.buttonModal}
+                  onPress={onConfirm}
+                >
+                  <Text variant="subtitle2" style={styles.textButton}>
+                    {'Xác nhận'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -258,12 +381,10 @@ const styles = StyleSheet.create(theme => ({
     paddingBottom: stylesGlobal.paddingBottomWithInset.paddingBottom,
   },
   container: {
-    // flex: 1,
     marginHorizontal: theme.typography.spacings.L,
   },
   textInputContainer: {
     flex: 1,
-    // gap: theme.typography.spacings.XS,
     marginBottom: theme.typography.spacings.XS,
   },
   titleText: {
@@ -297,6 +418,49 @@ const styles = StyleSheet.create(theme => ({
     marginTop: 2,
     color: theme.character_danger,
     fontSize: theme.typography.fontSizes.M,
+  },
+
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  card: {
+    width: '80%',
+    borderRadius: theme.typography.radius.M,
+    paddingHorizontal: theme.typography.spacings.L,
+    paddingVertical: theme.typography.spacings.XL,
+    backgroundColor: theme.character_white,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.typography.spacings.S,
+  },
+  title: {
+    fontWeight: '700',
+    color: theme.primary,
+    fontSize: theme.typography.fontSizes.L,
+  },
+  sub: {
+    color: theme.primary,
+    fontSize: theme.typography.fontSizes.MS,
+  },
+  result: {
+    fontSize: theme.typography.fontSizes.L,
+    color: theme.primary,
+  },
+  buttonModal: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.primary,
+    borderRadius: theme.typography.radius.M,
+    paddingVertical: theme.typography.spacings.S,
+    paddingHorizontal: theme.typography.spacings.L,
+  },
+  modalItem: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: theme.typography.spacings.S,
   },
 }));
 
