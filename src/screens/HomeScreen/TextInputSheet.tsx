@@ -1,20 +1,30 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
-import InfoToTrainningSheet from 'src/sheet-modals/InfoToTrainingSheet';
+import InfoToTrainningSheet, {
+  FormValues,
+  Mode,
+} from 'src/sheet-modals/InfoToTrainingSheet';
 import { CustomBackdropSheet } from 'src/components/CustomBackDropSheet';
 import { StyleSheet } from 'react-native-unistyles';
 import { InteractionManager, Keyboard } from 'react-native';
 
 export interface ITextInputSheetRef {
-  present: () => void;
+  present: (mode: Mode) => void;
 }
 type Props = {
   // This type is empty
+  onSubmit?: (payload: {
+    mode: Mode;
+    data: FormValues;
+    result?: string;
+  }) => void;
 };
 
 export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
-  function TextInputSheet(_props, ref) {
+  function TextInputSheet(props, ref) {
     const bottomSheetRef = useRef<BottomSheetModal>(null);
+
+    const [mode, setMode] = useState<Mode>('forecast');
 
     const onClose = () => {
       Keyboard.dismiss();
@@ -26,14 +36,21 @@ export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
       });
     };
 
-    const onSubmit = () => {
-      /*Handle before close bottom sheet*/
+    // const onSubmit = () => {
 
-      onClose();
-    };
+    //   /*Handle before close bottom sheet*/
 
+    //   onClose();
+    // };
+
+    // useImperativeHandle(ref, () => ({
+    //   present() {
+    //     bottomSheetRef.current?.present();
+    //   },
+    // }));
     useImperativeHandle(ref, () => ({
-      present() {
+      present(nextMode: Mode) {
+        setMode(nextMode);
         bottomSheetRef.current?.present();
       },
     }));
@@ -41,7 +58,6 @@ export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
     return (
       <BottomSheetModal
         ref={bottomSheetRef}
-        // snapPoints={['90%']}
         enableDynamicSizing
         enablePanDownToClose
         stackBehavior="switch"
@@ -52,7 +68,13 @@ export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
         )}
       >
         <BottomSheetView style={styles.rootView}>
-          <InfoToTrainningSheet onClose={onClose} onSubmit={onSubmit} />
+          <InfoToTrainningSheet
+            mode={mode}
+            onClose={onClose}
+            onSubmit={(payload) => {
+              props.onSubmit?.(payload);
+            }}
+          />
         </BottomSheetView>
       </BottomSheetModal>
     );
