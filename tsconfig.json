@@ -1,0 +1,16 @@
+{
+  "extends": "@react-native/typescript-config/tsconfig.json",
+  "compilerOptions": {
+    "noImplicitAny": false,
+    "experimentalDecorators": true,
+    "esModuleInterop": true,
+    "baseUrl": "."
+  },
+  "exclude": ["eslint.config.js"],
+  "include": [
+    "index.js",
+    "src",
+    "App.tsx", 
+    "unistyles.ts",
+  ]
+}
