@@ -70,7 +70,7 @@ async def predict(input: PredictRequest):
         
         # Tạo runway dataframe
         runway_df = pd.DataFrame({
-            'Exit-location': [1750, 1950, 2086.35],
+            'Exit-location': [1750, 1850, 2086.35],
             'Exit-angle': [30, 30, 30],
         })
         
@@ -141,7 +141,7 @@ async def predict(input: PredictRequest):
             "mean_rot": float(means[best_index]),
             "all_probabilities": [float(p) for p in probabilities[0]],
             "all_means": [float(m) for m in means],
-            "exit_locations": [1750, 1950, 2086.35]
+            "exit_locations": [1750, 1850, 2086.35]
         }
         
         return {
