@@ -1,7 +1,7 @@
 import { AirplanePosition } from "./type"
 import { DeviceEventEmitter } from 'react-native';
 
-export type RouteName = 'P4' | 'P5';
+export type RouteName = 'P4' | 'P5' | 'SPECIAL';
 
 export const REGION = {
     latitude: 10.8188889,
@@ -38,8 +38,11 @@ export const P4: AirplanePosition[] = [
   START_POINT,
 
   /*--Bellow is data train "Tại đường lăn 1750m (P4)"--*/
-  { latitude: 10.81851, longitude: 106.64667 }, 
-  { latitude: 10.81520, longitude: 106.64218 },
+  // { latitude: 10.81851, longitude: 106.64667 }, 
+  // { latitude: 10.81520, longitude: 106.64218 },
+  {latitude: 10.818611, longitude:106.646944},
+  {latitude: 10.816389, longitude:106.645000},
+  {latitude: 10.815556, longitude:106.643056},
   /*---------------------------------------------------*/
 ]
 
@@ -49,11 +52,21 @@ export const P5: AirplanePosition[] = [
   /* Bellow is data train "Tại đường lăn 2086.35m (P5)"*/
   { latitude: 10.817794, longitude: 106.644555 }, 
   { latitude: 10.815212, longitude: 106.642238 },
+  // { latitude: 10.817222, longitude: 106.643889 },
+  // { latitude: 10.815278, longitude: 106.642778 },
   /*---------------------------------------------------*/
 ]
 
+export const SPECIAL : AirplanePosition[] = [
+  START_POINT,
+  /* Bellow is data train "Tại đường lăn đề xuất thêm 1850m (SPECIAL)"*/
+  { latitude: 10.818056, longitude: 106.645556 }, 
+  { latitude: 10.815278, longitude: 106.643056 }, 
+  /*------------------------------------------------------------------*/
+]
+
 export function setRoute(name: RouteName, rotSeconds?: number) {
-  const next = name === 'P4' ? P4 : P5;
+  const next = name === 'P4' ? P4 : name === 'P5' ? P5 : SPECIAL;
   WAYPOINTS.splice(0, WAYPOINTS.length, ...next); 
   DeviceEventEmitter.emit('route:updated', { name, points: next, rotSeconds});
 }
