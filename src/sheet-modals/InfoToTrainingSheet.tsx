@@ -18,6 +18,9 @@ import {
   inferExitLocationAndRot,
   routeByExitLocation,
 } from 'src/data/rot-data';
+import { PredictPayload, PredictResponse } from 'src/screens/HomeScreen/type';
+import { postJSON } from 'src/utils/api';
+import { formatPredictResponse, Formatted } from 'src/api/helper';
 
 type Result = { routeName: RouteName; rot: number };
 
@@ -40,8 +43,15 @@ export type FormValues = {
   windspeed: string;
   visibility: string;
 };
+const delay = (ms: number) =>
+  new Promise<void>(resolve => {
+    setTimeout(() => resolve(), ms);
+  });
 
-const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
+const randomBetween = (min: number, max: number) =>
+  Math.floor(Math.random() * (max - min + 1)) + min;
+
+const InfoToTrainingSheet: React.FC<IProps> = function InfoToTrainningSheet(
   props,
 ) {
   const {
@@ -62,9 +72,11 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
 
   const [visible, setVisible] = useState(false);
   const [phase, setPhase] = useState<'processing' | 'result' | null>(null);
-  const [result, setResult] = useState< Result | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+  const [formatted, setFormatted] = useState<Formatted | null>();
+  const [showMore, setShowMore] = useState<boolean>(false);
 
-  const onSubmitForm = (_data: FormValues) => {
+  const onSubmitForm = async (_data: FormValues) => {
     if (props.mode === 'estimated') {
       const inferred = inferExitLocationAndRot({
         aircraftType: _data.aircraftType,
@@ -88,22 +100,9 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
       if (!routeName) {
         setVisible(true);
         setPhase('result');
-        setResult(null); 
+        setResult(null);
         return;
       }
-
-      // setRoute(routeName, inferred.rotSeconds);
-
-      // props.onSubmit?.({
-      //   mode: props.mode,
-      //   data: _data,
-      //   result: routeName,
-      // });
-
-      // setVisible(true);
-      // setPhase('result');
-      // setResult({routeName, rot: inferred.rotSeconds });
-      // return;
 
       props.onSubmit?.({ mode: props.mode, data: _data, result: routeName });
       setVisible(true);
@@ -115,30 +114,63 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
     setVisible(true);
     setPhase('processing');
     setResult(null);
+
+    const minSpinMs = randomBetween(5000, 10000);
+
+    const payload: PredictPayload = {
+      final_approach: Number(_data.finalApproach),
+      aircraft_type: _data.aircraftType as 'Heavy' | 'Medium' | 'Light',
+      temperature: Number(_data.temperature),
+      time: _data.time as 'Day' | 'Night',
+      windspeed: Number(_data.windspeed),
+      visibility: Number(_data.visibility),
+    };
+
+    const [res] = await Promise.all([
+      postJSON<PredictResponse>('/predict', payload, 15000),
+      delay(minSpinMs),
+    ]);
+
+    //const res = await postJSON<PredictResponse>('/predict', payload, 15000);
+
+    if (res.status !== 'success' || !res.data) {
+      throw new Error(res.message || 'Gọi API thất bại!');
+    }
+
+    const data = formatPredictResponse(res.data);
+
+    setFormatted(data);
+    setResult({ routeName: data.best_run_way, rot: data.best_rot });
+    setPhase('result');
   };
 
-  console.log("HELLO")
-
   const onConfirm = () => {
-    if (props.mode === 'estimated' && result) {
+    if (result) {
       setRoute(result.routeName, result.rot);
       setTimeout(() => {
-       DeviceEventEmitter.emit('clock:start');
-     }, 250 + 3000);
+        DeviceEventEmitter.emit('clock:start');
+      }, 250 + 3000);
 
-     if (typeof result.rot === 'number') {
-       setTimeout(() => {
-         DeviceEventEmitter.emit('clock:stop');
-       }, 3250 +Math.round(result.rot * 1000));
-     }
+      if (typeof result.rot === 'number') {
+        setTimeout(() => {
+          DeviceEventEmitter.emit('clock:stop');
+        }, 3250 + Math.round(result.rot * 1000));
+      }
     }
 
     setVisible(false);
     setPhase(null);
     setResult(null);
     props.onClose();
-    // props.onSubmit();
   };
+
+  const runwayLabel = formatted
+    ? formatted.best_run_way === 'P4'
+      ? '1750m'
+      : formatted.best_run_way === 'P5'
+      ? '2086.35m'
+      : '1850m'
+    : undefined;
 
   useEffect(() => {
     return () => reset();
@@ -348,16 +380,81 @@ const InfoToTrainningSheet: React.FC<IProps> = function InfoToTrainningSheet(
             {phase === 'processing' ? (
               <View style={styles.modalItem}>
                 <ActivityIndicator size="large" />
-                <Text style={styles.title}>{'Đang training…'}</Text>
-                <Text style={styles.sub}>
+                <Text variant='subtitle1' style={styles.title}>{'Đang training…'}</Text>
+                <Text variant='subtitle2' style={styles.sub}>
                   {'Vui lòng đợi cho đến khi có kết quả!'}
                 </Text>
-              </View>
+              </View> 
             ) : (
               <View style={styles.modalItem}>
-                <Text style={styles.title}>{'Kết quả training'}</Text>
-                <Text style={styles.result}>Đường: {result?.routeName}</Text>
-                <Text style={styles.result}>ROT: {result?.rot} giây</Text>
+                <Text fontStyle='semi-bold' variant="h2" style={styles.title}>
+                  {props.mode === 'forecast'
+                    ? 'Kết quả training'
+                    : 'Kết quả ROT thực'}
+                </Text>
+                {formatted ? (
+                  <>
+                    <Text style={styles.result}>
+                      {'Xác suất sử dụng lối thoát đường lăn '}
+                      <Text fontStyle="bold" style={styles.result}>
+                        {runwayLabel}
+                      </Text>
+                      {' là cao nhất với giá trị: '}
+                      <Text fontStyle="bold" style={styles.result}>
+                        {formatted.best_probability.toFixed(4)}
+                      </Text>
+                      {' và ROT trung bình là: '}
+                      <Text fontStyle="bold" style={styles.result}>
+                        {`${formatted.best_rot.toFixed(2)}s`}
+                      </Text>
+                    </Text>
+
+                    {showMore && (
+                      <View style={styles.detailsBox}>
+                        {formatted.P4 && (
+                          <Text variant='subtitle2' style={styles.detailLine}>
+                            {"Đường lăn 1750m: \n"} 
+                            <Text variant='body1'>✈︎ p = {formatted.P4.probability.toFixed(4,)}{"\n"}</Text>
+                            <Text variant='body1'>✈︎ ROT = {formatted.P4.rot.toFixed(2)}s</Text>
+                          </Text>
+                        )}
+                        {formatted.SPECIAL && (
+                          <Text variant='subtitle2' style={styles.detailLine}>
+                            {"Đường lăn 1850m: \n"} 
+                            <Text variant='body1'>✈︎ p = {formatted.SPECIAL.probability.toFixed(4,)}{"\n"}</Text>
+                            <Text variant='body1'>✈︎ ROT = {formatted.SPECIAL.rot.toFixed(2)}s</Text>
+                          </Text>
+                        )}
+                        {formatted.P5 && (
+                          <Text variant='subtitle2' style={styles.detailLine}>
+                            {"Đường lăn 2086.35m: \n"} 
+                            <Text variant='body1'>✈︎ p = {formatted.P5.probability.toFixed(4,)}{"\n"}</Text>
+                            <Text variant='body1'>✈︎ ROT = {formatted.P5.rot.toFixed(2)}s</Text>
+                          </Text>
+                        )}
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      style={styles.seeMoreBtn}
+                      onPress={() => setShowMore(v => !v)}
+                    >
+                      <Text fontStyle='semi-bold' style={styles.seeMoreText}>
+                        {showMore ? 'Ẩn bớt' : 'Xem chi tiết'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.result}>
+                      Đường: {result?.routeName}
+                    </Text>
+                    <Text style={styles.result}>ROT: {result?.rot} giây</Text>
+                  </>
+                )}
+
+                {/* <Text style={styles.result}>Đường: {result?.routeName}</Text>
+                <Text style={styles.result}>ROT: {result?.rot} giây</Text> */}
                 <TouchableOpacity
                   style={styles.buttonModal}
                   onPress={onConfirm}
@@ -437,15 +534,16 @@ const styles = StyleSheet.create(theme => ({
     gap: theme.typography.spacings.S,
   },
   title: {
-    fontWeight: '700',
+    // fontWeight: '700',
     color: theme.primary,
-    fontSize: theme.typography.fontSizes.L,
+    // fontSize: theme.typography.fontSizes.L,
   },
   sub: {
     color: theme.primary,
-    fontSize: theme.typography.fontSizes.MS,
+    // fontSize: theme.typography.fontSizes.MS,
   },
   result: {
+    textAlign: 'center',
     fontSize: theme.typography.fontSizes.L,
     color: theme.primary,
   },
@@ -462,6 +560,38 @@ const styles = StyleSheet.create(theme => ({
     justifyContent: 'center',
     gap: theme.typography.spacings.S,
   },
+
+  seeMoreBtn: {
+    // paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderColor: theme.primary,
+    borderRadius: theme.typography.radius.S,
+    paddingHorizontal: theme.typography.spacings.S,
+  },
+  seeMoreText: {
+    color: theme.primary,
+  },
+  detailsBox: {
+    width: '100%',
+    gap: theme.typography.spacings.S,
+    padding: theme.typography.spacings.S,
+    borderRadius: theme.typography.radius.S,
+  },
+  detailLine: {
+    color: theme.primary,
+  },
 }));
 
-export default InfoToTrainningSheet;
+export default InfoToTrainingSheet;
+
+// "final_approach": 150,
+
+// "aircraft_type": "Medium",
+
+// "temperature": 30,
+
+// "time": "Night",
+
+// "windspeed": 2,
+
+// "visibility": 9

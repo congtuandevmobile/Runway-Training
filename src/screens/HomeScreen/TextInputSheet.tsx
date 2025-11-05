@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
-import InfoToTrainningSheet, {
+import InfoToTrainingSheet, {
   FormValues,
   Mode,
 } from 'src/sheet-modals/InfoToTrainingSheet';
@@ -12,7 +12,6 @@ export interface ITextInputSheetRef {
   present: (mode: Mode) => void;
 }
 type Props = {
-  // This type is empty
   onSubmit?: (payload: {
     mode: Mode;
     data: FormValues;
@@ -36,18 +35,6 @@ export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
       });
     };
 
-    // const onSubmit = () => {
-
-    //   /*Handle before close bottom sheet*/
-
-    //   onClose();
-    // };
-
-    // useImperativeHandle(ref, () => ({
-    //   present() {
-    //     bottomSheetRef.current?.present();
-    //   },
-    // }));
     useImperativeHandle(ref, () => ({
       present(nextMode: Mode) {
         setMode(nextMode);
@@ -63,12 +50,13 @@ export const TextInputSheet = forwardRef<ITextInputSheetRef, Props>(
         stackBehavior="switch"
         keyboardBlurBehavior="restore"
         keyboardBehavior="interactive"
+        // eslint-disable-next-line react/no-unstable-nested-components, @typescript-eslint/no-shadow
         backdropComponent={props => (
           <CustomBackdropSheet {...props} targetRef={bottomSheetRef} />
         )}
       >
         <BottomSheetView style={styles.rootView}>
-          <InfoToTrainningSheet
+          <InfoToTrainingSheet
             mode={mode}
             onClose={onClose}
             onSubmit={(payload) => {

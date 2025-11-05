@@ -1,3 +1,4 @@
+import { RouteName } from "src/screens/HomeScreen/contant";
 
 export type RotRow = {
   exit_location: string | number;    
@@ -102,15 +103,16 @@ export function inferExitLocationAndRot(input: {
 }
 
 /** Map exit_location → route name (mở rộng nếu cần) */
-export type RouteName = 'P4' | 'P5';
+// export type RouteName = 'P4' | 'P5';
 
-export function routeByExitLocation(exitLoc: number): RouteName | null {
-  if (Math.abs(exitLoc - 1750) < 1e-6) return 'P4';
-  if (Math.abs(exitLoc - 2086.35) < 1e-6) return 'P5';
-  return null;
+const EPS = 1e-6;
+const near = (a: number, b: number) => Math.abs(a - b) < EPS;
+
+export function routeByExitLocation(el: number): RouteName {
+  if (near(el, 1750)) return 'P4';
+  if (near(el, 2086.35)) return 'P5';
+  return 'SPECIAL';
 }
-
-//** ROT là time máy bay rời khỏi đường bay lớn (đường bay thẳng) **/
 
 export const ROT_DATA: RotRow[] = [
 {

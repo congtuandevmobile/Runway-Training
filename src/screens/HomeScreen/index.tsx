@@ -46,9 +46,6 @@ export const HomeScreen: React.FC = function HomeScreen() {
   const mapRef = useRef<MapView>(null);
   const [selectModeVisible, setSelectModeVisible] = useState<boolean>(false);
 
-  // const clockStartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // const clockStopTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const [bump, setBump] = useState(0);
   const [showRoute, setShowRoute] = useState<boolean>(false);
   const [routePoints, setRoutePoints] = useState<AirplanePosition[] | null>(
@@ -68,7 +65,7 @@ export const HomeScreen: React.FC = function HomeScreen() {
     onDone?: () => void,
     //
     overrideMoveDurationMs?: number,
-    isFirstLeg?: boolean
+    isFirstLeg?: boolean,
   ) => {
     'worklet';
     const targetBearing = calculateBearing(from, to);
@@ -80,9 +77,8 @@ export const HomeScreen: React.FC = function HomeScreen() {
     });
 
     // Tính duration theo khoảng cách
-    const moveDuration = overrideMoveDurationMs ?? durationMsBySpeed(from, to, SPEED_KMH);
-
-    //const moveDuration = durationMsBySpeed(from, to, SPEED_KMH);
+    const moveDuration =
+      overrideMoveDurationMs ?? durationMsBySpeed(from, to, SPEED_KMH);
 
     latitude.value = withDelay(
       START_MOVE_DELAY,
@@ -112,10 +108,10 @@ export const HomeScreen: React.FC = function HomeScreen() {
   };
 
   const animateRoute = (
-    wp: ReadonlyArray<AirplanePosition>, 
+    wp: ReadonlyArray<AirplanePosition>,
     loop = true,
     //
-    opts?: AnimateRouteOptions, 
+    opts?: AnimateRouteOptions,
   ) => {
     'worklet';
     if (!wp || wp.length < 2) return;
@@ -124,27 +120,33 @@ export const HomeScreen: React.FC = function HomeScreen() {
       const from = wp[i];
       const to = wp[i + 1];
       //
-      //const override = i === 0 ? opts?.firstLegDurationMs : undefined; 
+      //const override = i === 0 ? opts?.firstLegDurationMs : undefined;
       const isFirst = i === 0;
       const override = isFirst ? opts?.firstLegDurationMs : undefined;
 
-      animateSegment(from, to, () => {
-        i += 1;
-        if (i < wp.length - 1) {
-          step();
-        } else if (loop) {
-          // Reset nhanh rồi chạy lại từ đầu
-          opacity.value = withTiming(0, { duration: 160 }, () => {
-            latitude.value = wp[0].latitude;
-            longitude.value = wp[0].longitude;
-            rotation.value = calculateBearing(wp[0], wp[1] ?? wp[0]);
+      animateSegment(
+        from,
+        to,
+        () => {
+          i += 1;
+          if (i < wp.length - 1) {
+            step();
+          } else if (loop) {
+            // Reset nhanh rồi chạy lại từ đầu
+            opacity.value = withTiming(0, { duration: 160 }, () => {
+              latitude.value = wp[0].latitude;
+              longitude.value = wp[0].longitude;
+              rotation.value = calculateBearing(wp[0], wp[1] ?? wp[0]);
 
-            opacity.value = withTiming(1, { duration: 160 }, () => {
-              stepIndex0();
+              opacity.value = withTiming(1, { duration: 160 }, () => {
+                stepIndex0();
+              });
             });
-          });
-        }
-      }, override, isFirst);
+          }
+        },
+        override,
+        isFirst,
+      );
     };
 
     const stepIndex0 = () => {
@@ -182,44 +184,21 @@ export const HomeScreen: React.FC = function HomeScreen() {
     };
   });
 
-  // useEffect(() => {
-  //   const timer = setTimeout(() => {
-  //     scheduleOnUI(() => {
-  //       'worklet';
-  //       animateRoute([...WAYPOINTS], false);
-  //     });
-  //   }, 600);
-  //   return () => clearTimeout(timer);
-  //   // eslint-disable-next-line react-hooks/exhaustive-deps
-  // }, []);
-
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener(
       'route:updated',
-      (payload?: { 
-        name: 'P4' | 'P5'; 
+      (payload?: {
+        name: 'P4' | 'P5';
         points: AirplanePosition[];
         //
-        rotSeconds?: number
+        rotSeconds?: number;
       }) => {
         if (!payload?.points?.length) return;
-        // if (clockStartTimerRef.current) { clearTimeout(clockStartTimerRef.current); clockStartTimerRef.current = null; }
-        // if (clockStopTimerRef.current)  { clearTimeout(clockStopTimerRef.current);  clockStopTimerRef.current = null; }
         DeviceEventEmitter.emit('clock:reset'); // ✅
 
         setShowRoute(true);
         setRoutePoints([...payload.points]);
         setBump(v => v + 1);
-
-        // clockStartTimerRef.current = setTimeout(() => {
-        //   DeviceEventEmitter.emit('clock:start');
-        // }, START_MOVE_DELAY)
-
-        // if (payload.rotSeconds != null) {
-        //   clockStopTimerRef.current = setTimeout(() => {
-        //     DeviceEventEmitter.emit('clock:stop');
-        //   }, START_MOVE_DELAY + Math.round(payload.rotSeconds * 1000));
-        // }
 
         scheduleOnUI(() => {
           'worklet';
@@ -239,8 +218,13 @@ export const HomeScreen: React.FC = function HomeScreen() {
 
             opacity.value = withTiming(1, { duration: 160 }, () => {
               // animateRoute([...WAYPOINTS], false);
-              const firstLegMs = payload.rotSeconds != null ? payload.rotSeconds * 1000 : undefined;
-              animateRoute(payload.points, false, { firstLegDurationMs: firstLegMs });
+              const firstLegMs =
+                payload.rotSeconds != null
+                  ? payload.rotSeconds * 1000
+                  : undefined;
+              animateRoute(payload.points, false, {
+                firstLegDurationMs: firstLegMs,
+              });
             });
           });
         });
@@ -307,7 +291,7 @@ export const HomeScreen: React.FC = function HomeScreen() {
         </AnimatedMarker>
       </MapView>
 
-      <Clock/>
+      <Clock />
 
       <Modal transparent visible={selectModeVisible} animationType="fade">
         <View style={styles.overlay}>
@@ -417,7 +401,6 @@ const styles = StyleSheet.create(theme => ({
     color: theme.character_white,
     fontSize: theme.typography.fontSizes.L,
   },
-
   overlay: {
     alignItems: 'center',
     justifyContent: 'center',
