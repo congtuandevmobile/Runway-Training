@@ -368,7 +368,7 @@ const InfoToTrainingSheet: React.FC<IProps> = function InfoToTrainningSheet(
         >
           <Text variant={'subtitle2'} style={styles.textButton}>
             {props.mode === 'forecast'
-              ? 'Xác nhận training với dữ liệu trên'
+              ? 'Xác nhận dự đoán với dữ liệu trên'
               : 'Xác nhận chạy với dữ liệu thực trên'}
           </Text>
         </TouchableOpacity>
@@ -389,7 +389,7 @@ const InfoToTrainingSheet: React.FC<IProps> = function InfoToTrainningSheet(
               <View style={styles.modalItem}>
                 <Text fontStyle='semi-bold' variant="h2" style={styles.title}>
                   {props.mode === 'forecast'
-                    ? 'Kết quả training'
+                    ? 'Kết quả dự đoán'
                     : 'Kết quả ROT thực'}
                 </Text>
                 {formatted ? (
